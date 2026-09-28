@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Banana Classifier</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 600px;
+            width: 100%;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            backdrop-filter: blur(10px);
+        }
+
+        .header {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ffa500 100%);
+            color: white;
+            padding: 30px 20px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 30px 20px;
+        }
+
+        .camera-container {
+            position: relative;
+            border-radius: 15px;
+            overflow: hidden;
+            margin-bottom: 20px;
+            background: #f8f9fa;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        video {
+            width: 100%;
+            height: auto;
+            display: block;
+            background: #000;
+        }
+
+        .capture-button {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            color: white;
+            border: none;
+            border-radius: 50px;
+            padding: 15px 30px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
+            transition: all 0.3s ease;
+        }
+
+        .capture-button:hover {
+            transform: translateX(-50%) translateY(-2px);
+            box-shadow: 0 6px 20px rgba(76, 175, 80, 0.4);
+        }
+
+        .capture-button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: translateX(-50%);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            padding: 40px 20px;
+            color: #666;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #ff6b6b;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .result {
+            text-align: center;
+            padding: 30px 20px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            border-radius: 15px;
+            margin-top: 20px;
+        }
+
+        .result.rotten {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ffa500 100%);
+            color: white;
+        }
+
+        .result.fresh {
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            color: white;
+        }
+
+        .result h2 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .confidence {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+
+        .error {
+            background: linear-gradient(135deg, #ff4757 0%, #ff3838 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 15px;
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        canvas {
+            display: none;
+        }
+
+        @media (max-width: 480px) {
+            .header h1 {
+                font-size: 2rem;
+            }
+
+            .header p {
+                font-size: 1rem;
+            }
+
+            .capture-button {
+                padding: 12px 25px;
+                font-size: 1rem;
+            }
+
+            .result h2 {
+                font-size: 1.8rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Banana Classifier</h1>
+            <p>Point your camera at a banana and capture!</p>
+        </div>
+        <div class="content" id="app"></div>
+    </div>
+
+    <script>
+        // State variables
+        let cameraReady = false;
+        let isProcessing = false;
+
+        // DOM elements
+        const video = document.createElement('video');
+        video.autoplay = true;
+        video.playsinline = true;
+        video.muted = true;
+
+        const canvas = document.createElement('canvas');
+        canvas.style.display = 'none';
+
+        const captureButton = document.createElement('button');
+        captureButton.className = 'capture-button';
+        captureButton.innerHTML = '📸 Capture';
+        captureButton.style.display = 'none';
+
+        // Initialize the app when DOM is loaded
+        document.addEventListener('DOMContentLoaded', () => {
+            const app = document.getElementById('app');
+            
+            // Create camera container
+            const cameraContainer = document.createElement('div');
+            cameraContainer.className = 'camera-container';
+            
+            // Add video to container
+            cameraContainer.appendChild(video);
+            cameraContainer.appendChild(captureButton);
+            
+            // Add elements to app
+            app.appendChild(cameraContainer);
+            app.appendChild(canvas);
+            
+            // Show loading state
+            showLoading(cameraContainer, 'Initializing camera...');
+            
+            // Initialize camera
+            initializeCamera();
+            
+            // Add capture button click handler
+            captureButton.addEventListener('click', captureImage);
+        });
+
+        async function initializeCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: 640, height: 480 }
+                });
+
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    video.play();
+                    cameraReady = true;
+                    hideLoading();
+                    captureButton.style.display = 'block';
+                };
+            } catch (err) {
+                console.error('Camera access error:', err);
+                hideLoading();
+                showError('Unable to access camera. Please check permissions.');
+            }
+        }
+
+        async function captureImage() {
+            if (!cameraReady || isProcessing) return;
+
+            isProcessing = true;
+            captureButton.style.display = 'none';
+            hideResult();
+            hideError();
+
+            // Show processing state
+            const app = document.getElementById('app');
+            const processingDiv = document.createElement('div');
+            processingDiv.id = 'processing';
+            processingDiv.className = 'loading';
+            processingDiv.innerHTML = `
+                <div class="spinner"></div>
+                <p>Classifying banana...</p>
+            `;
+            app.appendChild(processingDiv);
+
+            try {
+                // Set canvas size to video dimensions
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+
+                // Draw current video frame to canvas
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                // Convert canvas to blob
+                canvas.toBlob(async (blob) => {
+                    try {
+                        // Create FormData and send to server
+                        const formData = new FormData();
+                        formData.append('image', blob, 'capture.jpg');
+
+                        const response = await fetch('/predict', {
+                            method: 'POST',
+                            body: formData
+                        });
+
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}`);
+                        }
+
+                        const data = await response.json();
+
+                        if (data.error) {
+                            throw new Error(data.error);
+                        }
+
+                        showResult(data);
+                    } catch (err) {
+                        console.error('Prediction error:', err);
+                        showError('Failed to classify image. Please try again.');
+                    } finally {
+                        isProcessing = false;
+                        captureButton.style.display = 'block';
+                        const processingDiv = document.getElementById('processing');
+                        if (processingDiv) processingDiv.remove();
+                    }
+                }, 'image/jpeg', 0.95);
+
+            } catch (err) {
+                console.error('Capture error:', err);
+                showError('Failed to capture image. Please try again.');
+                isProcessing = false;
+                captureButton.style.display = 'block';
+                const processingDiv = document.getElementById('processing');
+                if (processingDiv) processingDiv.remove();
+            }
+        }
+
+        function showLoading(container, message) {
+            const loadingDiv = document.createElement('div');
+            loadingDiv.id = 'camera-loading';
+            loadingDiv.className = 'loading';
+            loadingDiv.innerHTML = `
+                <div class="spinner"></div>
+                <p>${message}</p>
+            `;
+            container.appendChild(loadingDiv);
+        }
+
+        function hideLoading() {
+            const loadingDiv = document.getElementById('camera-loading');
+            if (loadingDiv) loadingDiv.remove();
+        }
+
+        function showResult(data) {
+            hideResult();
+            const app = document.getElementById('app');
+            const resultDiv = document.createElement('div');
+            resultDiv.id = 'result';
+            resultDiv.className = `result ${data.is_rotten ? 'rotten' : 'fresh'}`;
+            
+            resultDiv.innerHTML = `
+                <h2>${data.result}</h2>
+            `;
+            
+            app.appendChild(resultDiv);
+        }
+
+        function hideResult() {
+            const resultDiv = document.getElementById('result');
+            if (resultDiv) resultDiv.remove();
+        }
+
+        function showError(message) {
+            hideError();
+            const app = document.getElementById('app');
+            const errorDiv = document.createElement('div');
+            errorDiv.id = 'error';
+            errorDiv.className = 'error';
+            errorDiv.innerHTML = `<p>${message}</p>`;
+            app.appendChild(errorDiv);
+        }
+
+        function hideError() {
+            const errorDiv = document.getElementById('error');
+            if (errorDiv) errorDiv.remove();
+        }
+    </script>
+</body>
+</html>
