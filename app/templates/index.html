@@ -182,6 +182,43 @@
                 font-size: 1.8rem;
             }
         }
+        .upload-container {
+            margin-top: 24px;
+            padding: 24px;
+            border: 2px dashed #4CAF50;
+            border-radius: 15px;
+            text-align: center;
+            background: #f8fff8;
+        }
+
+        .upload-container h3 {
+            margin-bottom: 16px;
+            color: #333;
+        }
+
+        #imageUpload {
+            width: 100%;
+            margin-bottom: 12px;
+        }
+
+        #imagePreview {
+            border-radius: 10px;
+        }
+
+        #uploadButton {
+            margin-top: 16px;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 10px;
+            background: #4CAF50;
+            color: white;
+            cursor: pointer;
+        }
+
+        #uploadButton:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
     </style>
 </head>
 <body>
@@ -194,17 +231,38 @@
     </div>
 
     <script>
-        // State variables
         let cameraReady = false;
         let isProcessing = false;
 
-        // DOM elements
         const video = document.createElement('video');
         video.autoplay = true;
         video.playsinline = true;
         video.muted = true;
 
         const canvas = document.createElement('canvas');
+        const uploadContainer = document.createElement('div');
+
+        uploadContainer.className = 'upload-container';
+
+        uploadContainer.innerHTML = `
+            <h3>Or Upload an Image</h3>
+
+            <input
+                type="file"
+                id="imageUpload"
+                accept="image/jpeg,image/png"
+            >
+
+            <img
+                id="imagePreview"
+                alt="Selected banana"
+                style="display:none; max-width:100%; margin-top:15px;"
+            >
+
+            <button id="uploadButton" disabled>
+                Classify Uploaded Image
+            </button>
+        `;
         canvas.style.display = 'none';
 
         const captureButton = document.createElement('button');
@@ -212,30 +270,119 @@
         captureButton.innerHTML = '📸 Capture';
         captureButton.style.display = 'none';
 
-        // Initialize the app when DOM is loaded
         document.addEventListener('DOMContentLoaded', () => {
             const app = document.getElementById('app');
-            
-            // Create camera container
             const cameraContainer = document.createElement('div');
             cameraContainer.className = 'camera-container';
-            
-            // Add video to container
+
             cameraContainer.appendChild(video);
             cameraContainer.appendChild(captureButton);
             
-            // Add elements to app
             app.appendChild(cameraContainer);
             app.appendChild(canvas);
+            app.appendChild(uploadContainer);
             
-            // Show loading state
             showLoading(cameraContainer, 'Initializing camera...');
             
-            // Initialize camera
             initializeCamera();
             
-            // Add capture button click handler
             captureButton.addEventListener('click', captureImage);
+
+            const imageUpload =
+                document.getElementById('imageUpload');
+
+            const imagePreview =
+                document.getElementById('imagePreview');
+
+            const uploadButton =
+                document.getElementById('uploadButton');
+
+            let selectedImage = null;
+            let previewUrl = null;
+
+            imageUpload.addEventListener('change', (event) => {
+
+                const file = event.target.files[0];
+
+                selectedImage = null;
+                uploadButton.disabled = true;
+
+                if (previewUrl) {
+                    URL.revokeObjectURL(previewUrl);
+                    previewUrl = null;
+                }
+
+                imagePreview.style.display = 'none';
+
+                if (!file) return;
+
+                if (!['image/jpeg', 'image/png'].includes(file.type)) {
+                    showError('Please select a JPG or PNG image.');
+                    imageUpload.value = '';
+                    return;
+                }
+
+                if (file.size > 5 * 1024 * 1024) {
+                    showError('Maximum image size is 5 MB.');
+                    imageUpload.value = '';
+                    return;
+                }
+
+                hideError();
+
+                selectedImage = file;
+
+                previewUrl = URL.createObjectURL(file);
+
+                imagePreview.src = previewUrl;
+                imagePreview.style.display = 'block';
+
+                uploadButton.disabled = false;
+            });
+
+            uploadButton.addEventListener('click', async () => {
+
+                if (!selectedImage || isProcessing) return;
+
+                isProcessing = true;
+                uploadButton.disabled = true;
+
+                hideResult();
+                hideError();
+
+                const formData = new FormData();
+                formData.append('image', selectedImage);
+
+                try {
+                    const response = await fetch('/predict', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Classification failed');
+                    }
+
+                    const data = await response.json();
+
+                    if (data.error) {
+                        throw new Error(data.error);
+                    }
+
+                    showResult(data);
+
+                } catch (error) {
+
+                    console.error(error);
+                    showError('Unable to classify the uploaded image.');
+
+                } finally {
+
+                    isProcessing = false;
+                    uploadButton.disabled = false;
+
+                }
+});
         });
 
         async function initializeCamera() {
@@ -266,7 +413,6 @@
             hideResult();
             hideError();
 
-            // Show processing state
             const app = document.getElementById('app');
             const processingDiv = document.createElement('div');
             processingDiv.id = 'processing';
@@ -278,18 +424,14 @@
             app.appendChild(processingDiv);
 
             try {
-                // Set canvas size to video dimensions
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
 
-                // Draw current video frame to canvas
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-                // Convert canvas to blob
                 canvas.toBlob(async (blob) => {
                     try {
-                        // Create FormData and send to server
                         const formData = new FormData();
                         formData.append('image', blob, 'capture.jpg');
 
